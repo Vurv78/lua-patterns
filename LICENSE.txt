@@ -1,4 +1,6 @@
-Copyright © 2017 Steve Donovan
+Copyright © 2022 Vurv78
+
+Copyright © 2017-2022 Steve Donovan
 
 Copyright © 1994–2017 Lua.org, PUC-Rio.
 

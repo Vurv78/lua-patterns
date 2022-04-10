@@ -1,15 +1,15 @@
 [package]
-name = "lua-patterns"
+name = "lupat"
 version = "0.3.0"
-authors = ["steve donovan <steve.j.donovan@gmail.com>"]
-description = "Binding to Lua String Patterns"
+authors = ["Vurv78<vurvdevelops@gmail.com>"]
+description = "Lightweight lua patterns in Rust"
 license = "MIT"
-repository = "https://github.com/stevedonovan/lua-patterns"
-documentation = "https://docs.rs/lua-patterns"
+repository = "https://github.com/Vurv78/lupat"
+documentation = "https://docs.rs/lupat"
 
-keywords = ["string","matching","lua"]
+keywords = ["string", "matching", "lua"]
 
-categories = ["parsing","api-bindings"]
+categories = ["parsing"]
 
 
 
