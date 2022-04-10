@@ -1,7 +1,7 @@
 use std::ops;
 
-pub mod errors;
-use errors::*;
+pub mod error;
+use error::*;
 mod pattern;
 use pattern::*;
 
@@ -13,7 +13,7 @@ pub struct Pattern<'a> {
 }
 
 impl<'a> Pattern<'a> {
-	pub fn try_from_bytes(bytes: &'a [u8]) -> Result<Pattern<'a>, PatternError> {
+	pub fn try_from_bytes(bytes: &'a [u8]) -> Result<Pattern<'a>, Error> {
 		str_check(bytes)?;
 		let matches = [LuaMatch { start: 0, end: 0 }; LUA_MAXCAPTURES];
 		Ok(Pattern {
@@ -23,13 +23,12 @@ impl<'a> Pattern<'a> {
 		})
 	}
 
-	pub fn new(patt: &'a str) -> Result<Pattern<'a>, PatternError> {
+	pub fn new(patt: &'a str) -> Result<Pattern<'a>, Error> {
 		Pattern::try_from_bytes(patt.as_bytes())
 	}
 
 	pub fn matches_bytes(&mut self, s: &[u8]) -> bool {
-		self.n_match =
-			str_match(s, self.patt, &mut self.matches).expect("Should not fail - report as bug");
+		self.n_match = str_match(s, self.patt, &mut self.matches).expect("Should not fail - report as bug");
 		self.n_match > 0
 	}
 
@@ -140,7 +139,7 @@ impl<'a> Pattern<'a> {
 		res
 	}
 
-	pub fn gsub(&mut self, text: &str, repl: &str) -> Result<String, PatternError> {
+	pub fn gsub(&mut self, text: &str, repl: &str) -> Result<String, Error> {
 		let repl = generate_gsub_patterns(repl)?;
 		let mut slice = text;
 		let mut res = String::new();
@@ -198,7 +197,7 @@ impl Subst {
 	}
 }
 
-pub fn generate_gsub_patterns(repl: &str) -> Result<Vec<Subst>, PatternError> {
+pub fn generate_gsub_patterns(repl: &str) -> Result<Vec<Subst>, Error> {
 	let mut m = Pattern::new("%%([%%%d])")?;
 	let mut res = Vec::new();
 	let mut slice = repl;
@@ -228,7 +227,7 @@ pub struct Substitute {
 }
 
 impl Substitute {
-	pub fn new(repl: &str) -> Result<Substitute, PatternError> {
+	pub fn new(repl: &str) -> Result<Substitute, Error> {
 		Ok(Substitute {
 			repl: generate_gsub_patterns(repl)?,
 		})
@@ -378,17 +377,18 @@ mod tests {
 
 	#[test]
 	fn bad_patterns() {
-		let bad = [
-			("%", "malformed pattern (ends with '%')"),
-			("(dog%(", "unfinished capture"),
-			("[%a%[", "malformed pattern (missing ']')"),
-			("(()", "unfinished capture"),
-			("[%A", "malformed pattern (missing ']')"),
-			("(1) (2(3)%2)%1", "invalid capture index %2"),
+		let tests = [
+			("%",               Error::EndsWithPercent),
+			("(dog%(",          Error::UnfinishedCapture),
+			("[%a%[",           Error::MissingEndBracket),
+			("(()",             Error::UnfinishedCapture),
+			("[%A",             Error::MissingEndBracket),
+			("(1) (2(3)%2)%1",  Error::InvalidCapture(Some(2))),
 		];
-		for p in bad.iter() {
+
+		for p in tests.iter() {
 			if let Err(why) = Pattern::new(p.0) {
-				assert_eq!(why, PatternError(p.1.to_owned()));
+				assert_eq!(why, p.1);
 			} else {
 				panic!("pattern {} should have failed", p.0);
 			}
