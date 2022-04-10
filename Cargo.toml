@@ -1,15 +1,12 @@
 [package]
 name = "lupat"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Vurv78<vurvdevelops@gmail.com>"]
 description = "Lightweight lua patterns in Rust"
 license = "MIT"
 repository = "https://github.com/Vurv78/lupat"
 documentation = "https://docs.rs/lupat"
 
-keywords = ["string", "matching", "lua"]
+keywords = ["string", "matching", "lua", "pattern", "regex"]
 
 categories = ["parsing"]
-
-
-
