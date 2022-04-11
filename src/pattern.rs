@@ -24,11 +24,10 @@ fn next(p: CPtr) -> CPtr {
 }
 
 #[inline(always)]
-fn at(p: CPtr) -> u8 {
+const fn at(p: CPtr) -> u8 {
 	unsafe { *p }
 }
 
-// What
 #[inline(always)]
 fn diff(p1: CPtr, p2: CPtr) -> usize {
 	let d = (p1 as isize).wrapping_sub(p2 as isize);
@@ -49,11 +48,11 @@ enum CapLen {
 }
 
 impl CapLen {
-	fn is_unfinished(&self) -> bool {
+	const fn is_unfinished(&self) -> bool {
 		matches!(*self, CapLen::Unfinished)
 	}
 
-	fn size(&self) -> Result<usize> {
+	const fn size(&self) -> Result<usize> {
 		match *self {
 			CapLen::Len(size) => Ok(size),
 			_ => Err( Error::CapLen ),
@@ -68,7 +67,7 @@ struct Capture {
 }
 
 impl Capture {
-	fn is_unfinished(&self) -> bool {
+	const fn is_unfinished(&self) -> bool {
 		self.len.is_unfinished()
 	}
 }
@@ -77,31 +76,34 @@ use std::result;
 
 type Result<T> = result::Result<T, Error>;
 
-struct MatchState {
+struct MatchState<const MAXCAPTURES: usize = LUA_MAXCAPTURES> {
 	matchdepth: usize, /* control for recursive depth (to avoid stack overflow) */
 	src_init: CPtr,    /* init of source string */
 	src_end: CPtr,     /* end ('\0') of source string */
 	p_end: CPtr,       /* end ('\0') of pattern */
 	level: usize,      /* total number of captures (finished or unfinished) */
-	capture: [Capture; LUA_MAXCAPTURES],
+	capture: [Capture; MAXCAPTURES],
 }
 
-impl MatchState {
-	fn new(s: CPtr, se: CPtr, pe: CPtr) -> MatchState {
-		MatchState {
+impl<const MAXCAPTURES: usize> MatchState<MAXCAPTURES> {
+	const fn new(s: CPtr, se: CPtr, pe: CPtr) -> Self {
+		Self {
 			matchdepth: MAXCCALLS,
 			src_init: s,
 			src_end: se,
 			p_end: pe,
 			level: 0,
-			capture: [Capture {
-				init: null(),
-				len: CapLen::Len(0),
-			}; LUA_MAXCAPTURES],
+			capture: [
+				Capture {
+					init: null(),
+					len: CapLen::Len(0),
+				};
+				MAXCAPTURES
+			],
 		}
 	}
 
-	fn check_capture(&self, l: usize) -> Result<usize> {
+	const fn check_capture(&self, l: usize) -> Result<usize> {
 		let l = l as i8 - b'1' as i8;
 		if l < 0 || l as usize >= self.level || self.capture[l as usize].is_unfinished() {
 			return Err( Error::InvalidCapture( Some(l + 1) ) );
@@ -109,7 +111,7 @@ impl MatchState {
 		Ok(l as usize)
 	}
 
-	fn capture_to_close(&self) -> Result<usize> {
+	const fn capture_to_close(&self) -> Result<usize> {
 		let mut level = (self.level - 1) as isize;
 		while level >= 0 {
 			if self.capture[level as usize].is_unfinished() {
@@ -204,7 +206,7 @@ fn matchbracketclass(c: u8, p: CPtr, ec: CPtr) -> bool {
 	!sig
 }
 
-impl MatchState {
+impl<const MAXCAPTURES: usize> MatchState<MAXCAPTURES> {
 	fn singlematch(&self, s: CPtr, p: CPtr, ep: CPtr) -> bool {
 		if s >= self.src_end {
 			return false;
@@ -278,7 +280,7 @@ impl MatchState {
 
 	fn start_capture(&mut self, s: CPtr, p: CPtr, what: CapLen) -> Result<CPtr> {
 		let level = self.level;
-		if level >= LUA_MAXCAPTURES {
+		if level >= MAXCAPTURES {
 			return Err(Error::TooManyCaptures);
 		}
 		self.capture[level].init = s;
@@ -486,7 +488,7 @@ impl MatchState {
 	}
 
 	pub fn str_match_check(&mut self, p: CPtr) -> Result<()> {
-		let mut level_stack = [0; LUA_MAXCAPTURES];
+		let mut level_stack = [0; MAXCAPTURES];
 		let mut stack_idx = 0;
 		let mut p = p;
 		while p < self.p_end {
@@ -541,7 +543,7 @@ impl MatchState {
 						stack_idx += 1;
 						self.capture[self.level].len = CapLen::Unfinished;
 						self.level += 1;
-						if self.level >= LUA_MAXCAPTURES {
+						if self.level >= MAXCAPTURES {
 							return Err( Error::TooManyCaptures );
 						}
 					} else {
@@ -565,7 +567,7 @@ impl MatchState {
 	}
 }
 
-pub fn str_match(s: &[u8], p: &[u8], mm: &mut [LuaMatch]) -> Result<usize> {
+pub fn str_match<const MAXCAPTURES: usize>(s: &[u8], p: &[u8], mm: &mut [LuaMatch]) -> Result<usize> {
 	let mut lp = p.len();
 	let mut p = p.as_ptr();
 	let ls = s.len();
@@ -577,13 +579,14 @@ pub fn str_match(s: &[u8], p: &[u8], mm: &mut [LuaMatch]) -> Result<usize> {
 		lp -= 1; /* skip anchor character */
 	}
 
-	let mut ms = MatchState::new(s, add(s, ls), add(p, lp));
+	let mut ms: MatchState<MAXCAPTURES> = MatchState::new(s, add(s, ls), add(p, lp));
 	loop {
 		let res = ms.patt_match(s1, p)?;
 		if !res.is_null() {
 			mm[0].start = diff(s1, s); /* start */
 			mm[0].end = diff(res, s); /* end */
-			return Ok(ms.push_captures(null(), null(), &mut mm[1..])? + 1);
+
+			return Ok( ms.push_captures(null(), null(), &mut mm[1..])? + 1 );
 		}
 		s1 = next(s1);
 		if s1 >= ms.src_end || anchor {
@@ -593,7 +596,7 @@ pub fn str_match(s: &[u8], p: &[u8], mm: &mut [LuaMatch]) -> Result<usize> {
 	Ok(0)
 }
 
-pub fn str_check(p: &[u8]) -> Result<()> {
+pub fn str_check<const MAXCAPTURES: usize>(p: &[u8]) -> Result<()> {
 	let mut lp = p.len();
 	let mut p = p.as_ptr();
 	let anchor = at(p) == b'^';
@@ -601,10 +604,10 @@ pub fn str_check(p: &[u8]) -> Result<()> {
 		p = next(p);
 		lp -= 1; /* skip anchor character */
 	}
-	let mut ms = MatchState::new(null(), null(), add(p, lp));
+	let mut ms: MatchState<MAXCAPTURES> = MatchState::new(null(), null(), add(p, lp));
 	if at(sub(ms.p_end, 1)) == b'%' {
 		return Err( Error::EndsWithPercent );
 	}
-	ms.str_match_check(p)?;
-	Ok(())
+
+	ms.str_match_check(p)
 }

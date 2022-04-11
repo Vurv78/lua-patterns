@@ -6,16 +6,16 @@ mod pattern;
 use pattern::*;
 
 /// Represents a Lua string pattern and the results of a match
-pub struct Pattern<'a> {
+pub struct Pattern<'a, const MAXCAPTURES: usize = LUA_MAXCAPTURES> {
 	patt: &'a [u8],
-	matches: [LuaMatch; LUA_MAXCAPTURES],
+	matches: [LuaMatch; MAXCAPTURES],
 	n_match: usize,
 }
 
-impl<'a> Pattern<'a> {
-	pub fn try_from_bytes(bytes: &'a [u8]) -> Result<Pattern<'a>, Error> {
-		str_check(bytes)?;
-		let matches = [LuaMatch { start: 0, end: 0 }; LUA_MAXCAPTURES];
+impl<'a, const MAXCAPTURES: usize> Pattern<'a, MAXCAPTURES> {
+	pub fn try_from_bytes(bytes: &'a [u8]) -> Result<Self, Error> {
+		str_check::<MAXCAPTURES>(bytes)?;
+		let matches = [LuaMatch { start: 0, end: 0 }; MAXCAPTURES];
 		Ok(Pattern {
 			patt: bytes,
 			matches,
@@ -23,12 +23,12 @@ impl<'a> Pattern<'a> {
 		})
 	}
 
-	pub fn new(patt: &'a str) -> Result<Pattern<'a>, Error> {
-		Pattern::try_from_bytes(patt.as_bytes())
+	pub fn new<S: AsRef<[u8]> + ?Sized>(pattern: &'a S) -> Result<Self, Error> {
+		Pattern::try_from_bytes( pattern.as_ref() )
 	}
 
 	pub fn matches_bytes(&mut self, s: &[u8]) -> bool {
-		self.n_match = str_match(s, self.patt, &mut self.matches).expect("Should not fail - report as bug");
+		self.n_match = str_match::<MAXCAPTURES>(s, self.patt, &mut self.matches).expect("Should not fail - report as bug");
 		self.n_match > 0
 	}
 
@@ -74,7 +74,7 @@ impl<'a> Pattern<'a> {
 		res
 	}
 
-	pub fn match_captures<'b, 'c>(&'c self, text: &'b str) -> Captures<'a, 'b, 'c> {
+	pub fn match_captures<'b, 'c>(&'c self, text: &'b str) -> Captures<'a, 'b, 'c, MAXCAPTURES> {
 		Captures { m: self, text }
 	}
 
@@ -104,21 +104,21 @@ impl<'a> Pattern<'a> {
 		self.capture(idx)
 	}
 
-	pub fn gmatch<'b, 'c>(&'c mut self, text: &'b str) -> GMatch<'a, 'b, 'c> {
+	pub fn gmatch<'b, 'c>(&'c mut self, text: &'b str) -> GMatch<'a, 'b, 'c, MAXCAPTURES> {
 		GMatch { m: self, text }
 	}
 
-	pub fn gmatch_captures<'b, 'c>(&'c mut self, text: &'b str) -> GMatchCaptures<'a, 'b, 'c> {
+	pub fn gmatch_captures<'b, 'c>(&'c mut self, text: &'b str) -> GMatchCaptures<'a, 'b, 'c, MAXCAPTURES> {
 		GMatchCaptures { m: self, text }
 	}
 
-	pub fn gmatch_bytes<'b>(&'a mut self, bytes: &'b [u8]) -> GMatchBytes<'a, 'b> {
+	pub fn gmatch_bytes<'b>(&'a mut self, bytes: &'b [u8]) -> GMatchBytes<'a, 'b, MAXCAPTURES> {
 		GMatchBytes { m: self, bytes }
 	}
 
 	pub fn gsub_with<F>(&mut self, text: &str, lookup: F) -> String
 	where
-		F: Fn(Captures) -> String,
+		F: Fn(Captures<MAXCAPTURES>) -> String,
 	{
 		let mut slice = text;
 		let mut res = String::new();
@@ -164,7 +164,7 @@ impl<'a> Pattern<'a> {
 
 	pub fn gsub_bytes_with<F>(&mut self, bytes: &[u8], lookup: F) -> Vec<u8>
 	where
-		F: Fn(ByteCaptures) -> Vec<u8>,
+		F: Fn(ByteCaptures<MAXCAPTURES>) -> Vec<u8>,
 	{
 		let mut slice = bytes;
 		let mut res = Vec::new();
@@ -198,7 +198,8 @@ impl Subst {
 }
 
 pub fn generate_gsub_patterns(repl: &str) -> Result<Vec<Subst>, Error> {
-	let mut m = Pattern::new("%%([%%%d])")?;
+	let mut m: Pattern<'_, 2> = Pattern::new("%%([%%%d])")?;
+
 	let mut res = Vec::new();
 	let mut slice = repl;
 	while m.matches(slice) {
@@ -227,13 +228,13 @@ pub struct Substitute {
 }
 
 impl Substitute {
-	pub fn new(repl: &str) -> Result<Substitute, Error> {
+	pub fn new(repl: &str) -> Result<Self, Error> {
 		Ok(Substitute {
 			repl: generate_gsub_patterns(repl)?,
 		})
 	}
 
-	pub fn subst(&self, patt: &Pattern, text: &str) -> String {
+	pub fn subst<const MAXCAPTURES: usize>(&self, patt: &Pattern<MAXCAPTURES>, text: &str) -> String {
 		let mut res = String::new();
 		let captures = patt.match_captures(text);
 		for r in &self.repl {
@@ -246,15 +247,15 @@ impl Substitute {
 	}
 }
 
-pub struct Captures<'a, 'b, 'c>
+pub struct Captures<'a, 'b, 'c, const MAXCAPTURES: usize = LUA_MAXCAPTURES>
 where
 	'a: 'c,
 {
-	m: &'c Pattern<'a>,
+	m: &'c Pattern<'a, MAXCAPTURES>,
 	text: &'b str,
 }
 
-impl<'a, 'b, 'c> Captures<'a, 'b, 'c> {
+impl<'a, 'b, 'c, const MAXCAPTURES: usize> Captures<'a, 'b, 'c, MAXCAPTURES> {
 	/// get the capture as a string slice
 	pub fn get(&self, i: usize) -> &'b str {
 		&self.text[self.m.capture(i)]
@@ -266,12 +267,12 @@ impl<'a, 'b, 'c> Captures<'a, 'b, 'c> {
 	}
 }
 
-pub struct ByteCaptures<'a, 'b> {
-	m: &'a Pattern<'a>,
+pub struct ByteCaptures<'a, 'b, const MAXCAPTURES: usize = LUA_MAXCAPTURES> {
+	m: &'a Pattern<'a, MAXCAPTURES>,
 	bytes: &'b [u8],
 }
 
-impl<'a, 'b> ByteCaptures<'a, 'b> {
+impl<'a, 'b, const MAXCAPTURES: usize> ByteCaptures<'a, 'b, MAXCAPTURES> {
 	pub fn get(&self, i: usize) -> &'b [u8] {
 		&self.bytes[self.m.capture(i)]
 	}
@@ -281,15 +282,15 @@ impl<'a, 'b> ByteCaptures<'a, 'b> {
 	}
 }
 
-pub struct GMatch<'a, 'b, 'c>
+pub struct GMatch<'a, 'b, 'c, const MAXCAPTURES: usize = LUA_MAXCAPTURES>
 where
 	'a: 'c,
 {
-	m: &'c mut Pattern<'a>,
+	m: &'c mut Pattern<'a, MAXCAPTURES>,
 	text: &'b str,
 }
 
-impl<'a, 'b, 'c> Iterator for GMatch<'a, 'b, 'c> {
+impl<'a, 'b, 'c, const MAXCAPTURES: usize> Iterator for GMatch<'a, 'b, 'c, MAXCAPTURES> {
 	type Item = &'b str;
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -322,15 +323,15 @@ impl<'b> CapturesUnsafe<'b> {
 	}
 }
 
-pub struct GMatchCaptures<'a, 'b, 'c>
+pub struct GMatchCaptures<'a, 'b, 'c, const MAXCAPTURES: usize = LUA_MAXCAPTURES>
 where
 	'a: 'c,
 {
-	m: &'c mut Pattern<'a>,
+	m: &'c mut Pattern<'a, MAXCAPTURES>,
 	text: &'b str,
 }
 
-impl<'a, 'b, 'c> Iterator for GMatchCaptures<'a, 'b, 'c>
+impl<'a, 'b, 'c, const MAXCAPTURES: usize> Iterator for GMatchCaptures<'a, 'b, 'c, MAXCAPTURES>
 where
 	'a: 'c,
 {
@@ -352,12 +353,12 @@ where
 }
 
 /// Iterator for all byte slices from `gmatch_bytes`
-pub struct GMatchBytes<'a, 'b> {
-	m: &'a mut Pattern<'a>,
+pub struct GMatchBytes<'a, 'b, const MAXCAPTURES: usize = LUA_MAXCAPTURES> {
+	m: &'a mut Pattern<'a, MAXCAPTURES>,
 	bytes: &'b [u8],
 }
 
-impl<'a, 'b> Iterator for GMatchBytes<'a, 'b> {
+impl<'a, 'b, const MAXCAPTURES: usize> Iterator for GMatchBytes<'a, 'b, MAXCAPTURES> {
 	type Item = &'b [u8];
 
 	fn next(&mut self) -> Option<Self::Item> {
@@ -367,31 +368,6 @@ impl<'a, 'b> Iterator for GMatchBytes<'a, 'b> {
 			let slice = &self.bytes[self.m.first_capture()];
 			self.bytes = &self.bytes[self.m.range().end..];
 			Some(slice)
-		}
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn bad_patterns() {
-		let tests = [
-			("%",               Error::EndsWithPercent),
-			("(dog%(",          Error::UnfinishedCapture),
-			("[%a%[",           Error::MissingEndBracket),
-			("(()",             Error::UnfinishedCapture),
-			("[%A",             Error::MissingEndBracket),
-			("(1) (2(3)%2)%1",  Error::InvalidCapture(Some(2))),
-		];
-
-		for p in tests.iter() {
-			if let Err(why) = Pattern::new(p.0) {
-				assert_eq!(why, p.1);
-			} else {
-				panic!("pattern {} should have failed", p.0);
-			}
 		}
 	}
 }
