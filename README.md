@@ -1,4 +1,4 @@
-## ``lupat``
+# ``lupat``
 > Lua's patterns in Rust
 
 Adds [lua patterns](https://www.lua.org/pil/20.2.html) to be used in your Rust libraries.  
@@ -9,6 +9,11 @@ Forked from [lua-patterns](https://github.com/stevedonovan/lua-patterns).
 Plan is to rewrite it completely to no longer need unsafe code.  
 Already stripped out all of the possible panics.
 
+## Features
+* Zero dependencies
+* Custom compile time pattern sizing with [const generics](https://rust-lang.github.io/rfcs/2000-const-generics.html)
+
+## Example
 ```rust
 use lupat::Pattern;
 
